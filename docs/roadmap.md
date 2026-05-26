@@ -29,7 +29,7 @@ Exit criteria:
 
 ## Phase 2: Local Runtime
 
-Status: runtime foundation started, transport remains next major milestone.
+Status: local frame dispatch, Spring WebSocket adapter, heartbeat lifecycle, bounded queues, and runtime close cleanup started. Fuller operational features remain the next major milestone.
 
 Goals:
 
@@ -38,8 +38,8 @@ Goals:
 - decode and encode a small JSON wire protocol
 - dispatch join, leave, and message events
 - maintain local session and membership indexes
-- add heartbeat
-- add graceful shutdown
+- send heartbeat frames and close heartbeat-timeout sessions
+- close the runtime by disconnecting sessions and clearing memberships
 - introduce bounded outbound queues
 - apply backpressure policies
 - expose initial runtime performance metrics
@@ -74,7 +74,7 @@ Exit criteria:
 
 ## Phase 4: Operational Readiness
 
-Status: after first usable runtime.
+Status: Micrometer meter binding, a basic Actuator diagnostics endpoint, slow-consumer signals, disconnect reason tracking, handler failure counters, and payload decode failure counters started. Deeper operator surfaces remain.
 
 Goals:
 
@@ -83,12 +83,13 @@ Goals:
 - handler latency measurement
 - slow consumer diagnostics
 - disconnect reason tracking
+- handler and payload failure diagnostics
 - structured logs for lifecycle events
 - optional JFR integration hooks
 
 Exit criteria:
 
-- operators can answer how many sessions, memberships, drops, and heartbeat timeouts exist
+- operators can answer how many sessions, memberships, drops, slow-consumer signals, handler failures, payload decode failures, disconnects, and heartbeat timeouts exist
 - a slow consumer can be identified without attaching a debugger
 - runtime state can be inspected through supported APIs
 
@@ -114,11 +115,12 @@ Exit criteria:
 
 ## Phase 5.5: Performance Hardening
 
-Status: after the first sample-backed runtime.
+Status: lightweight benchmark fixture started for channel resolution, local broadcast fan-out, and bounded queue offers.
 
 Goals:
 
 - establish baseline benchmark numbers
+- keep the executable benchmark fixture repeatable in CI
 - measure memory retained per idle session
 - measure p50, p95, and p99 local broadcast latency
 - measure allocation rate under fan-out
@@ -133,7 +135,7 @@ Exit criteria:
 
 ## Phase 6: Cluster Awareness
 
-Status: later.
+Status: Redis metadata model, keyspace helpers, TTL options, and store contract skeleton started.
 
 Goals:
 

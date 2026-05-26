@@ -2,6 +2,7 @@ package io.github.kimseungjin.kanal.runtime
 
 import io.github.kimseungjin.kanal.core.BackpressurePolicy
 import java.util.EnumMap
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.LongAdder
@@ -12,6 +13,7 @@ class RuntimeMetrics {
     private val inboundFrames = LongAdder()
     private val outboundFrames = LongAdder()
     private val droppedOutboundMessages = LongAdder()
+    private val slowConsumerSignals = LongAdder()
     private val heartbeatTimeouts = LongAdder()
     private val channelResolutionCount = LongAdder()
     private val channelResolutionNanos = LongAdder()
@@ -25,8 +27,15 @@ class RuntimeMetrics {
         EnumMap<BackpressurePolicy, LongAdder>(BackpressurePolicy::class.java).apply {
             BackpressurePolicy.entries.forEach { put(it, LongAdder()) }
         }
+    private val slowConsumerSignalsByPolicy =
+        EnumMap<BackpressurePolicy, LongAdder>(BackpressurePolicy::class.java).apply {
+            BackpressurePolicy.entries.forEach { put(it, LongAdder()) }
+        }
+    private val disconnectsByReason = ConcurrentHashMap<String, LongAdder>()
     private val handlerLatencyCount = LongAdder()
     private val handlerLatencyNanos = LongAdder()
+    private val handlerFailures = LongAdder()
+    private val payloadDecodeFailures = LongAdder()
     private val maxHandlerLatencyNanos = AtomicLong()
 
     fun sessionOpened() {
@@ -67,6 +76,15 @@ class RuntimeMetrics {
         disconnectsByPolicy.getValue(policy).increment()
     }
 
+    fun recordDisconnect(reason: String) {
+        disconnectsByReason.computeIfAbsent(reason.toMetricKey()) { LongAdder() }.increment()
+    }
+
+    fun recordSlowConsumerSignal(policy: BackpressurePolicy) {
+        slowConsumerSignals.increment()
+        slowConsumerSignalsByPolicy.getValue(policy).increment()
+    }
+
     fun recordHeartbeatTimeout() {
         heartbeatTimeouts.increment()
     }
@@ -84,6 +102,14 @@ class RuntimeMetrics {
         maxHandlerLatencyNanos.updateMax(nanos)
     }
 
+    fun recordHandlerFailure() {
+        handlerFailures.increment()
+    }
+
+    fun recordPayloadDecodeFailure() {
+        payloadDecodeFailures.increment()
+    }
+
     fun recordOutboundQueueDepth(depth: Int) {
         require(depth >= 0) { "Outbound queue depth must not be negative" }
         maxObservedOutboundQueueDepth.updateMax(depth)
@@ -96,13 +122,18 @@ class RuntimeMetrics {
             inboundFrames = inboundFrames.sum(),
             outboundFrames = outboundFrames.sum(),
             droppedOutboundMessages = droppedOutboundMessages.sum(),
+            slowConsumerSignals = slowConsumerSignals.sum(),
             dropsByPolicy = dropsByPolicy.mapValues { it.value.sum() },
+            slowConsumerSignalsByPolicy = slowConsumerSignalsByPolicy.mapValues { it.value.sum() },
             disconnectsByPolicy = disconnectsByPolicy.mapValues { it.value.sum() },
+            disconnectsByReason = disconnectsByReason.mapValues { it.value.sum() }.toSortedMap(),
             heartbeatTimeouts = heartbeatTimeouts.sum(),
             channelResolutionCount = channelResolutionCount.sum(),
             channelResolutionNanos = channelResolutionNanos.sum(),
             handlerLatencyCount = handlerLatencyCount.sum(),
             handlerLatencyNanos = handlerLatencyNanos.sum(),
+            handlerFailures = handlerFailures.sum(),
+            payloadDecodeFailures = payloadDecodeFailures.sum(),
             maxHandlerLatencyNanos = maxHandlerLatencyNanos.get(),
             maxObservedOutboundQueueDepth = maxObservedOutboundQueueDepth.get(),
             maxObservedBroadcastFanOut = maxObservedBroadcastFanOut.get(),
@@ -115,6 +146,16 @@ class RuntimeMetrics {
     private fun AtomicLong.updateMax(candidate: Long) {
         updateAndGet { current -> maxOf(current, candidate) }
     }
+
+    private fun String.toMetricKey(): String {
+        val key =
+            trim()
+                .lowercase()
+                .replace(Regex("[^a-z0-9]+"), "_")
+                .trim('_')
+
+        return key.ifBlank { "unknown" }
+    }
 }
 
 data class RuntimeMetricsSnapshot(
@@ -123,13 +164,18 @@ data class RuntimeMetricsSnapshot(
     val inboundFrames: Long,
     val outboundFrames: Long,
     val droppedOutboundMessages: Long,
+    val slowConsumerSignals: Long,
     val dropsByPolicy: Map<BackpressurePolicy, Long>,
+    val slowConsumerSignalsByPolicy: Map<BackpressurePolicy, Long>,
     val disconnectsByPolicy: Map<BackpressurePolicy, Long>,
+    val disconnectsByReason: Map<String, Long>,
     val heartbeatTimeouts: Long,
     val channelResolutionCount: Long,
     val channelResolutionNanos: Long,
     val handlerLatencyCount: Long,
     val handlerLatencyNanos: Long,
+    val handlerFailures: Long,
+    val payloadDecodeFailures: Long,
     val maxHandlerLatencyNanos: Long,
     val maxObservedOutboundQueueDepth: Int,
     val maxObservedBroadcastFanOut: Int,

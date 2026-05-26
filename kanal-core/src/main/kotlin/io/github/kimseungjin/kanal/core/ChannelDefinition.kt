@@ -10,4 +10,24 @@ class ChannelDefinition<T : Any>(
     internal val joinHandler: ChannelContext.() -> Unit,
     internal val leaveHandler: ChannelContext.() -> Unit,
     internal val messageHandler: ChannelContext.(T) -> Unit,
-)
+) {
+    fun invokeJoin(context: ChannelContext) {
+        context.joinHandler()
+    }
+
+    fun invokeLeave(context: ChannelContext) {
+        context.leaveHandler()
+    }
+
+    fun invokeMessage(
+        context: ChannelContext,
+        message: Any,
+    ) {
+        require(messageType.isInstance(message)) {
+            "Message for '${pattern.value}' must be ${messageType.qualifiedName}, but was ${message::class.qualifiedName}"
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        context.messageHandler(message as T)
+    }
+}

@@ -11,7 +11,7 @@ Kanal은 core model을 안정적으로 유지하고 runtime과 framework integra
 1. `kanal-core`
    Channel definition, channel pattern, session, presence, context, message handler, backpressure policy 등 시스템의 언어를 정의합니다.
 2. `kanal-runtime`
-   Membership index, bounded outbound queue, local metrics 같은 runtime foundation을 담당하고, 이후 local connection lifecycle, frame decoding, handler dispatch, heartbeat, graceful shutdown까지 확장됩니다.
+   Membership index, bounded outbound queue, local metrics, local connection lifecycle, frame decoding, handler dispatch, heartbeat, runtime shutdown 같은 runtime foundation을 담당합니다.
 3. `kanal-spring-boot-starter`
    Autoconfiguration, properties, security integration, metrics, actuator endpoint를 통해 runtime을 Spring Boot에 연결합니다.
 4. `cluster adapters`
@@ -119,7 +119,7 @@ Runtime은 transport I/O에는 event loop를 사용하고, user handler는 block
 
 초기 protocol은 지루할 정도로 단순하고 관찰 가능해야 합니다.
 
-후보 frame:
+현재 frame:
 
 ```json
 {
@@ -141,7 +141,34 @@ Runtime은 transport I/O에는 event loop를 사용하고, user handler는 block
 - `error`
 - `reply`
 
+Reply payload는 다음 envelope으로 감쌉니다.
+
+```json
+{
+  "event": "reply",
+  "payload": {
+    "event": "join",
+    "status": "ok",
+    "response": {}
+  }
+}
+```
+
+Error payload는 안정적인 code를 사용합니다.
+
+```json
+{
+  "event": "error",
+  "payload": {
+    "code": "malformed_frame",
+    "message": "Malformed frame"
+  }
+}
+```
+
 첫 runtime에서 durable delivery를 약속하면 안 됩니다. 시스템이 실제로 제공하지 않는 보장을 암시하는 것보다, 명확한 at-most-once local delivery model이 훨씬 낫습니다.
+
+현재 runtime foundation은 이 frame 형태를 기준으로 `join`, `leave`, `message`, `heartbeat` dispatch를 지원합니다. 또한 scheduled heartbeat frame을 보내고, heartbeat-timeout session을 닫으며, runtime close 시 membership을 정리합니다. Spring Boot starter는 `/realtime` 기본 endpoint에서 text WebSocket message를 JSON frame으로 decode해 runtime으로 전달합니다.
 
 ## Backpressure
 
@@ -180,9 +207,9 @@ Local hot path:
 - outbound queue는 기본적으로 bounded해야 합니다.
 - fan-out size, queue depth, handler latency, dropped messages는 별도로 측정되어야 합니다.
 
-초기 코드 foundation에는 실제 WebSocket transport를 제외한 이 조각들이 들어와 있습니다.
+초기 코드 foundation에는 local JSON frame dispatch path와 Spring WebSocket adapter까지 포함되어 있습니다.
 
-더 자세한 방향은 [성능 전략](performance.ko.md)을 참고하세요.
+`kanal-benchmarks` module은 channel resolution, local broadcast fan-out, bounded queue offer behavior를 검증하는 lightweight executable fixture를 제공합니다. 현재 실행 명령과 테스트된 runtime path는 [README](../README.ko.md)에 정리되어 있습니다.
 
 ## Cluster 방향
 
@@ -205,6 +232,8 @@ Local에 남아야 하는 것:
 
 이 방향은 현실적인 distributed model을 줍니다. Connection을 소유한 node로 route하고, route에 필요한 metadata만 복제하며, failure behavior를 이해 가능한 상태로 유지합니다.
 
+`kanal-cluster-redis` module은 metadata data class, 안정적인 Redis keyspace helper, TTL/options validation, `RedisClusterMetadataStore` contract로 이 방향의 시작점을 제공합니다. 아직 동작하는 Redis 구현을 제공한다고 말하지는 않습니다.
+
 ## Observability
 
 Kanal은 diagnostics를 제품의 일부로 다뤄야 합니다.
@@ -219,10 +248,12 @@ Kanal은 diagnostics를 제품의 일부로 다뤄야 합니다.
 - outbound queue depth
 - slow consumer count
 - dropped outbound messages
+- payload decode failures
+- handler failures
 - heartbeat timeout count
 - disconnect reason count
 
-Spring Boot 사용자는 직접 runtime registry dumper를 만들지 않아도 Micrometer metrics와 actuator diagnostics를 얻을 수 있어야 합니다.
+Spring Boot 사용자는 `kanal.metrics-enabled=true`일 때 현재 runtime snapshot을 Micrometer meter로 얻고, `kanal.actuator-enabled=true`일 때 counter, active session, joined channel, queue depth, last-seen age를 포함한 `kanal` Actuator endpoint로 조회할 수 있습니다.
 
 ## 지금은 의도적으로 제외하는 것
 

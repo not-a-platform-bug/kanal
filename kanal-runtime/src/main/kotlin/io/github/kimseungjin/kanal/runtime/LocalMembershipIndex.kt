@@ -74,10 +74,24 @@ class LocalMembershipIndex(
     fun sessions(address: ChannelAddress): Set<String> =
         sessionsByChannel[address]?.toSet().orEmpty()
 
+    fun contains(
+        sessionId: String,
+        address: ChannelAddress,
+    ): Boolean = sessionsByChannel[address]?.contains(sessionId) == true
+
     fun broadcastTargets(address: ChannelAddress): Set<String> {
         val targets = sessions(address)
         metrics?.recordBroadcastFanOut(targets.size)
         return targets
+    }
+
+    fun forEachBroadcastTarget(
+        address: ChannelAddress,
+        block: (String) -> Unit,
+    ) {
+        val targets = sessionsByChannel[address].orEmpty()
+        metrics?.recordBroadcastFanOut(targets.size)
+        targets.forEach(block)
     }
 
     fun channels(sessionId: String): Set<ChannelAddress> =

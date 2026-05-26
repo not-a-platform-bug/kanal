@@ -29,6 +29,7 @@ kotlin {
 
 dependencies {
     api(project(":kanal-core"))
+    api(project(":kanal-runtime"))
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("tools.jackson.module:jackson-module-kotlin")

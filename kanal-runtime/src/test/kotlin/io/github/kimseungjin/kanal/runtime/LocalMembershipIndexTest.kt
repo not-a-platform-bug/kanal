@@ -19,8 +19,14 @@ class LocalMembershipIndexTest {
         assertTrue(index.join(session, address))
         assertFalse(index.join(session, address))
 
+        val targets = mutableListOf<String>()
+        index.forEachBroadcastTarget(address) { targets += it }
+
+        assertTrue(index.contains("s1", address))
+        assertFalse(index.contains("missing", address))
         assertEquals(setOf("s1"), index.sessions(address))
         assertEquals(setOf("s1"), index.broadcastTargets(address))
+        assertEquals(listOf("s1"), targets)
         assertEquals(setOf(address), index.channels("s1"))
         assertEquals(1, index.activeMemberships())
         assertEquals(1, metrics.snapshot().activeMemberships)

@@ -27,7 +27,9 @@ class BoundedOutboundQueueTest {
         assertEquals(OutboundQueueOfferResult.DROPPED_OLDEST, queue.offer("c"))
         assertEquals(listOf("b", "c"), queue.snapshot())
         assertEquals(1, metrics.snapshot().droppedOutboundMessages)
+        assertEquals(1, metrics.snapshot().slowConsumerSignals)
         assertEquals(1, metrics.snapshot().dropsByPolicy.getValue(BackpressurePolicy.DROP_OLDEST))
+        assertEquals(1, metrics.snapshot().slowConsumerSignalsByPolicy.getValue(BackpressurePolicy.DROP_OLDEST))
     }
 
     @Test
@@ -51,6 +53,7 @@ class BoundedOutboundQueueTest {
         assertEquals(OutboundQueueOfferResult.DISCONNECT, queue.offer("b"))
         assertEquals(listOf("a"), queue.snapshot())
         assertEquals(1, metrics.snapshot().disconnectsByPolicy.getValue(BackpressurePolicy.DISCONNECT))
+        assertEquals(1, metrics.snapshot().slowConsumerSignalsByPolicy.getValue(BackpressurePolicy.DISCONNECT))
     }
 
     @Test

@@ -11,7 +11,7 @@ Kanal should stay layered so that the core model remains stable while runtime an
 1. `kanal-core`
    Defines the language of the system: channel definitions, channel patterns, sessions, presence, contexts, message handlers, and backpressure policy.
 2. `kanal-runtime`
-   Owns runtime foundations such as membership indexes, bounded outbound queues, local metrics, and eventually local connection lifecycle, frame decoding, handler dispatch, heartbeat, and graceful shutdown.
+   Owns runtime foundations such as membership indexes, bounded outbound queues, local metrics, local connection lifecycle, frame decoding, handler dispatch, heartbeat, and runtime shutdown.
 3. `kanal-spring-boot-starter`
    Wires the runtime into Spring Boot through autoconfiguration, properties, security integration, metrics, and actuator endpoints.
 4. `cluster adapters`
@@ -119,7 +119,7 @@ The runtime can use event-loop transport I/O while running user handlers in a bl
 
 The initial protocol should be boring and inspectable.
 
-Candidate frame shape:
+Current frame shape:
 
 ```json
 {
@@ -141,7 +141,34 @@ Expected early events:
 - `error`
 - `reply`
 
+Reply payloads are wrapped as:
+
+```json
+{
+  "event": "reply",
+  "payload": {
+    "event": "join",
+    "status": "ok",
+    "response": {}
+  }
+}
+```
+
+Error payloads use stable codes:
+
+```json
+{
+  "event": "error",
+  "payload": {
+    "code": "malformed_frame",
+    "message": "Malformed frame"
+  }
+}
+```
+
 Kanal should avoid promising durable delivery in the first runtime. A clear at-most-once local delivery model is easier to reason about than an implied guarantee the system does not actually provide.
+
+The current runtime foundation dispatches `join`, `leave`, `message`, and `heartbeat` frames in this shape. It also sends scheduled heartbeat frames, closes heartbeat-timeout sessions, and clears memberships on runtime close. The Spring Boot starter decodes text WebSocket messages as JSON frames at the default `/realtime` endpoint and hands them to the runtime.
 
 ## Backpressure
 
@@ -180,9 +207,9 @@ Important design consequences:
 - outbound queues should be bounded by default.
 - fan-out size, queue depth, handler latency, and dropped messages should be measured separately.
 
-The initial code foundation now includes these pieces except the actual WebSocket transport.
+The initial code foundation now includes these pieces, including the local JSON frame dispatch path and Spring WebSocket adapter.
 
-See [Performance strategy](performance.md) for the fuller direction.
+The `kanal-benchmarks` module provides a lightweight executable fixture for channel resolution, local broadcast fan-out, and bounded queue offer behavior. See the [README](../README.md) for the current command and tested runtime path.
 
 ## Cluster Direction
 
@@ -205,6 +232,8 @@ What stays local:
 
 This gives Kanal a realistic distributed model: route to the node that owns the connection, replicate enough metadata to know where to route, and keep failure behavior understandable.
 
+The `kanal-cluster-redis` module now starts this shape with metadata data classes, stable Redis keyspace helpers, TTL/options validation, and a `RedisClusterMetadataStore` contract. It intentionally does not claim a working Redis implementation yet.
+
 ## Observability
 
 Kanal should treat diagnostics as part of the product.
@@ -219,10 +248,12 @@ Early metrics:
 - outbound queue depth
 - slow consumer count
 - dropped outbound messages
+- payload decode failures
+- handler failures
 - heartbeat timeout count
 - disconnect reason count
 
-Spring Boot users should eventually get Micrometer metrics and actuator diagnostics without writing their own runtime registry dumpers.
+Spring Boot users get Micrometer meters for the current runtime snapshot when `kanal.metrics-enabled=true`, and a `kanal` Actuator endpoint with counters, active sessions, joined channels, queue depths, and last-seen ages when `kanal.actuator-enabled=true`.
 
 ## Deliberately Missing For Now
 

@@ -28,9 +28,11 @@ kotlin {
 dependencies {
     implementation(project(":kanal-spring-boot-starter"))
     implementation("org.springframework.boot:spring-boot-starter")
+    implementation("org.springframework.boot:spring-boot-starter-websocket")
 
     testImplementation(kotlin("test"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("tools.jackson.module:jackson-module-kotlin")
 }
 
 tasks.withType<Test> {

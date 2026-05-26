@@ -29,7 +29,7 @@
 
 ## Phase 2: Local Runtime
 
-상태: runtime foundation 시작됨, transport가 다음 주요 milestone.
+상태: local frame dispatch, Spring WebSocket adapter, heartbeat lifecycle, bounded queue, runtime close cleanup이 시작됨. 더 완전한 운영 기능이 다음 주요 milestone.
 
 목표:
 
@@ -38,8 +38,8 @@
 - 작은 JSON wire protocol decode/encode
 - join, leave, message event dispatch
 - local session과 membership index 유지
-- heartbeat 추가
-- graceful shutdown 추가
+- heartbeat frame 전송과 heartbeat-timeout session close
+- runtime close 시 session disconnect와 membership cleanup
 - bounded outbound queue 도입
 - backpressure policy 적용
 - 초기 runtime performance metrics 노출
@@ -74,7 +74,7 @@
 
 ## Phase 4: Operational Readiness
 
-상태: 첫 usable runtime 이후.
+상태: Micrometer meter binding, 기본 Actuator diagnostics endpoint, slow-consumer signal, disconnect reason tracking, handler failure counter, payload decode failure counter 시작됨. 더 깊은 운영 표면은 아직 남아 있음.
 
 목표:
 
@@ -83,12 +83,13 @@
 - handler latency measurement
 - slow consumer diagnostics
 - disconnect reason tracking
+- handler와 payload failure diagnostics
 - lifecycle event structured log
 - optional JFR integration hook
 
 완료 기준:
 
-- 운영자가 session, membership, drop, heartbeat timeout 수를 답할 수 있음
+- 운영자가 session, membership, drop, slow-consumer signal, handler failure, payload decode failure, disconnect, heartbeat timeout 수를 답할 수 있음
 - debugger 없이 slow consumer를 식별할 수 있음
 - runtime state를 supported API로 inspect할 수 있음
 
@@ -114,11 +115,12 @@
 
 ## Phase 5.5: Performance Hardening
 
-상태: sample-backed runtime 이후.
+상태: channel resolution, local broadcast fan-out, bounded queue offer를 위한 lightweight benchmark fixture 시작됨.
 
 목표:
 
 - baseline benchmark number 수립
+- executable benchmark fixture를 CI에서 반복 가능하게 유지
 - idle session당 retained memory 측정
 - p50, p95, p99 local broadcast latency 측정
 - fan-out 상황의 allocation rate 측정
@@ -133,7 +135,7 @@
 
 ## Phase 6: Cluster Awareness
 
-상태: 이후 단계.
+상태: Redis metadata model, keyspace helper, TTL option, store contract skeleton 시작됨.
 
 목표:
 

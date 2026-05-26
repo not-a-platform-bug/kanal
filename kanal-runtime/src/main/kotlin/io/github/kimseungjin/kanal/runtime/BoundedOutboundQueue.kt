@@ -25,6 +25,7 @@ class BoundedOutboundQueue<T : Any>(
 
             when (policy) {
                 BackpressurePolicy.SUSPEND -> {
+                    metrics?.recordSlowConsumerSignal(policy)
                     metrics?.recordOutboundQueueDepth(items.size)
                     OutboundQueueOfferResult.WOULD_SUSPEND
                 }
@@ -33,18 +34,21 @@ class BoundedOutboundQueue<T : Any>(
                     items.removeFirst()
                     items.addLast(item)
                     metrics?.recordOutboundFrame()
+                    metrics?.recordSlowConsumerSignal(policy)
                     metrics?.recordDroppedOutboundMessage(policy)
                     metrics?.recordOutboundQueueDepth(items.size)
                     OutboundQueueOfferResult.DROPPED_OLDEST
                 }
 
                 BackpressurePolicy.DROP_LATEST -> {
+                    metrics?.recordSlowConsumerSignal(policy)
                     metrics?.recordDroppedOutboundMessage(policy)
                     metrics?.recordOutboundQueueDepth(items.size)
                     OutboundQueueOfferResult.DROPPED_LATEST
                 }
 
                 BackpressurePolicy.DISCONNECT -> {
+                    metrics?.recordSlowConsumerSignal(policy)
                     metrics?.recordDisconnect(policy)
                     metrics?.recordOutboundQueueDepth(items.size)
                     OutboundQueueOfferResult.DISCONNECT
