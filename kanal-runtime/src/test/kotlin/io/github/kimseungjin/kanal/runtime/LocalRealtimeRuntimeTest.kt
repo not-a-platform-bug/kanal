@@ -98,6 +98,38 @@ class LocalRealtimeRuntimeTest {
     }
 
     @Test
+    fun `broadcast forwards encoded payloads to cluster publisher`() {
+        val forwarded = mutableListOf<Pair<String, Any>>()
+        val app =
+            realtime {
+                channel<ChatMessage>("chat/{roomId}") {
+                    onMessage { message -> broadcast(message) }
+                }
+            }
+        val runtime =
+            LocalRealtimeRuntime(
+                application = app,
+                presenceStore = InMemoryPresenceStore(),
+                clusterPublisher = ClusterOutboundPublisher { _, channel, payload -> forwarded += channel to payload },
+            )
+        val transport = RecordingTransportSession()
+
+        runtime.connect(SessionDescriptor(id = "s1"), transport)
+        runtime.receive("s1", RealtimeFrame(ref = "1", event = RealtimeFrameEvents.JOIN, channel = "chat/general"))
+        runtime.receive(
+            "s1",
+            RealtimeFrame(
+                ref = "2",
+                event = RealtimeFrameEvents.MESSAGE,
+                channel = "chat/general",
+                payload = ChatMessage("hello"),
+            ),
+        )
+
+        assertEquals(listOf<Pair<String, Any>>("chat/general" to ChatMessage("hello")), forwarded)
+    }
+
+    @Test
     fun `rejects messages before join`() {
         val app =
             realtime {
@@ -318,6 +350,67 @@ class LocalRealtimeRuntimeTest {
 
         assertEquals(1, runtime.snapshot().handlerFailures)
         assertEquals(1, runtime.snapshot().activeSessions)
+
+        runtime.close()
+    }
+
+    @Test
+    fun `failed join handler rolls back membership and returns an error`() {
+        val app =
+            realtime {
+                channel<ChatMessage>("chat/{roomId}") {
+                    onJoin { error("join failed") }
+                }
+            }
+        val runtime = LocalRealtimeRuntime(app, InMemoryPresenceStore())
+        val transport = RecordingTransportSession()
+
+        runtime.connect(SessionDescriptor(id = "s1"), transport)
+        runtime.receive("s1", RealtimeFrame(ref = "1", event = RealtimeFrameEvents.JOIN, channel = "chat/general"))
+
+        assertEquals(1, runtime.snapshot().handlerFailures)
+        assertEquals(0, runtime.snapshot().activeMemberships)
+        assertTrue(
+            transport.sent.any {
+                it.event == RealtimeFrameEvents.ERROR &&
+                    it.ref == "1" &&
+                    it.payload == RealtimeErrorPayload(
+                        code = RealtimeErrorCodes.HANDLER_FAILED,
+                        message = "Join handler failed for 'chat/general'",
+                    )
+            },
+        )
+
+        runtime.close()
+    }
+
+    @Test
+    fun `failed leave handler keeps membership and returns an error`() {
+        val app =
+            realtime {
+                channel<ChatMessage>("chat/{roomId}") {
+                    onLeave { error("leave failed") }
+                }
+            }
+        val runtime = LocalRealtimeRuntime(app, InMemoryPresenceStore())
+        val transport = RecordingTransportSession()
+
+        runtime.connect(SessionDescriptor(id = "s1"), transport)
+        runtime.receive("s1", RealtimeFrame(ref = "1", event = RealtimeFrameEvents.JOIN, channel = "chat/general"))
+        runtime.receive("s1", RealtimeFrame(ref = "2", event = RealtimeFrameEvents.LEAVE, channel = "chat/general"))
+
+        assertEquals(1, runtime.snapshot().handlerFailures)
+        assertEquals(1, runtime.snapshot().activeMemberships)
+        assertTrue(
+            transport.sent.any {
+                it.event == RealtimeFrameEvents.ERROR &&
+                    it.ref == "2" &&
+                    it.payload == RealtimeErrorPayload(
+                        code = RealtimeErrorCodes.HANDLER_FAILED,
+                        message = "Leave handler failed for 'chat/general'",
+                    )
+            },
+        )
 
         runtime.close()
     }

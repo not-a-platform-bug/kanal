@@ -3,6 +3,7 @@ package io.github.kimseungjin.kanal.spring
 import io.github.kimseungjin.kanal.core.BackpressurePolicy
 import io.github.kimseungjin.kanal.runtime.LocalRealtimeRuntime
 import io.github.kimseungjin.kanal.runtime.RuntimeDiagnosticsSnapshot
+import io.github.kimseungjin.kanal.runtime.RuntimeEvent
 import io.github.kimseungjin.kanal.runtime.RuntimeMetricsSnapshot
 import io.github.kimseungjin.kanal.runtime.RuntimeQueueDiagnostics
 import io.github.kimseungjin.kanal.runtime.RuntimeSessionDiagnostics
@@ -21,6 +22,7 @@ class KanalRuntimeEndpoint(
         KanalRuntimeEndpointResponse(
             metrics = metrics.toResponse(),
             sessions = sessions.map { it.toResponse() },
+            events = events.map { it.toResponse() },
         )
 
     private fun RuntimeMetricsSnapshot.toResponse(): KanalRuntimeMetricsResponse =
@@ -63,6 +65,15 @@ class KanalRuntimeEndpoint(
             capacity = capacity,
         )
 
+    private fun RuntimeEvent.toResponse(): KanalRuntimeEventResponse =
+        KanalRuntimeEventResponse(
+            sequence = sequence,
+            type = type,
+            sessionId = sessionId,
+            channel = channel,
+            detail = detail,
+        )
+
     private fun Map<BackpressurePolicy, Long>.toStringKeyMap(): Map<String, Long> =
         mapKeys { it.key.name.lowercase() }
 }
@@ -70,6 +81,7 @@ class KanalRuntimeEndpoint(
 data class KanalRuntimeEndpointResponse(
     val metrics: KanalRuntimeMetricsResponse,
     val sessions: List<KanalRuntimeSessionResponse>,
+    val events: List<KanalRuntimeEventResponse>,
 )
 
 data class KanalRuntimeMetricsResponse(
@@ -107,4 +119,12 @@ data class KanalRuntimeQueueResponse(
     val policy: String,
     val depth: Int,
     val capacity: Int,
+)
+
+data class KanalRuntimeEventResponse(
+    val sequence: Long,
+    val type: String,
+    val sessionId: String?,
+    val channel: String?,
+    val detail: String?,
 )

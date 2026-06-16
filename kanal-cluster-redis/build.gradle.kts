@@ -24,6 +24,8 @@ kotlin {
 
 dependencies {
     api(project(":kanal-core"))
+    api(project(":kanal-runtime"))
+    implementation("io.lettuce:lettuce-core:6.8.1.RELEASE")
 
     testImplementation(kotlin("test"))
 }

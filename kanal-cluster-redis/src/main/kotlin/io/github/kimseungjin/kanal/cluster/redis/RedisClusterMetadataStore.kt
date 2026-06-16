@@ -24,4 +24,16 @@ interface RedisClusterMetadataStore {
     )
 
     fun publish(envelope: ClusterBroadcastEnvelope)
+
+    fun node(nodeId: ClusterNodeId): ClusterNodeDescriptor?
+
+    fun session(sessionId: String): ClusterSessionDescriptor?
+
+    fun channelMembers(channel: String): List<ClusterChannelMembership>
+
+    fun userSessions(userId: String): List<ClusterSessionDescriptor>
+
+    fun presence(channel: String): List<ClusterPresenceEntry>
+
+    fun broadcasts(): List<ClusterBroadcastEnvelope>
 }

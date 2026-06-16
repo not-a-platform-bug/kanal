@@ -33,6 +33,7 @@ object RealtimeErrorCodes {
     const val CHANNEL_NOT_FOUND = "channel_not_found"
     const val NOT_JOINED = "not_joined"
     const val PAYLOAD_DECODE_FAILED = "payload_decode_failed"
+    const val HANDLER_FAILED = "handler_failed"
 }
 
 data class RealtimeErrorPayload(

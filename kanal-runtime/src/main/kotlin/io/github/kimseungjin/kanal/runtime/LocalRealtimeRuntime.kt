@@ -21,6 +21,8 @@ class LocalRealtimeRuntime(
     private val codec: RuntimePayloadCodec = IdentityRuntimePayloadCodec,
     private val options: RealtimeRuntimeOptions = RealtimeRuntimeOptions(),
     private val metrics: RuntimeMetrics = RuntimeMetrics(),
+    private val eventLog: RuntimeEventLog = RuntimeEventLog(options.eventLogCapacity),
+    private val clusterPublisher: ClusterOutboundPublisher = ClusterOutboundPublisher.NoOp,
     private val handlerExecutor: RuntimeHandlerExecutor = options.handlerExecution.createExecutor(options.virtualThreadNamePrefix),
     private val nanoTime: () -> Long = System::nanoTime,
 ) : AutoCloseable {
@@ -48,6 +50,7 @@ class LocalRealtimeRuntime(
 
         require(existing == null) { "Session '${session.id}' is already connected" }
         metrics.sessionOpened()
+        eventLog.record(RuntimeEventTypes.SESSION_CONNECTED, sessionId = session.id)
     }
 
     fun receive(
@@ -89,6 +92,7 @@ class LocalRealtimeRuntime(
         sessions.remove(sessionId)
         metrics.sessionClosed()
         metrics.recordDisconnect(reason)
+        eventLog.record(RuntimeEventTypes.SESSION_DISCONNECTED, sessionId = sessionId, detail = reason)
         session.transport.close(reason)
     }
 
@@ -101,6 +105,7 @@ class LocalRealtimeRuntime(
                 sessions.values
                     .map { it.diagnostics(nowNanos) }
                     .sortedBy { it.sessionId },
+            events = eventLog.snapshot(),
         )
 
     internal fun runHeartbeatCycle(nowNanos: Long = nanoTime()) {
@@ -112,6 +117,7 @@ class LocalRealtimeRuntime(
         sessions.values.forEach { session ->
             if (nowNanos - session.lastSeenNanos() > timeoutNanos) {
                 metrics.recordHeartbeatTimeout()
+                eventLog.record(RuntimeEventTypes.HEARTBEAT_TIMEOUT, sessionId = session.descriptor.id)
                 disconnect(session.descriptor.id, RuntimeDisconnectReasons.HEARTBEAT_TIMEOUT)
             } else {
                 sendHeartbeat(session)
@@ -142,10 +148,19 @@ class LocalRealtimeRuntime(
         memberships.join(session.descriptor, resolution.address)
         session.track(resolution.address, resolution.definition)
 
-        invokeHandler {
+        val joined = runHandlerNow {
             resolution.definition.invokeJoin(context(session, resolution.address, resolution.definition))
         }
 
+        if (!joined) {
+            memberships.leave(session.descriptor.id, resolution.address)
+            session.untrack(resolution.address)
+            eventLog.record(RuntimeEventTypes.HANDLER_FAILED, sessionId = session.descriptor.id, channel = frame.channel, detail = "join")
+            error(session, frame, RealtimeErrorCodes.HANDLER_FAILED, "Join handler failed for '${frame.channel}'")
+            return
+        }
+
+        eventLog.record(RuntimeEventTypes.JOINED, sessionId = session.descriptor.id, channel = frame.channel)
         reply(session, frame, RealtimeFrameEvents.JOIN, emptyMap<String, String>())
     }
 
@@ -157,12 +172,19 @@ class LocalRealtimeRuntime(
             resolve(frame, session)
                 ?: return
 
-        invokeHandler {
+        val left = runHandlerNow {
             resolution.definition.invokeLeave(context(session, resolution.address, resolution.definition))
+        }
+
+        if (!left) {
+            eventLog.record(RuntimeEventTypes.HANDLER_FAILED, sessionId = session.descriptor.id, channel = frame.channel, detail = "leave")
+            error(session, frame, RealtimeErrorCodes.HANDLER_FAILED, "Leave handler failed for '${frame.channel}'")
+            return
         }
 
         memberships.leave(session.descriptor.id, resolution.address)
         session.untrack(resolution.address)
+        eventLog.record(RuntimeEventTypes.LEFT, sessionId = session.descriptor.id, channel = frame.channel)
         reply(session, frame, RealtimeFrameEvents.LEAVE, emptyMap<String, String>())
     }
 
@@ -184,15 +206,21 @@ class LocalRealtimeRuntime(
                 codec.decode(frame.payload, resolution.definition.messageType)
             } catch (_: Throwable) {
                 metrics.recordPayloadDecodeFailure()
+                eventLog.record(RuntimeEventTypes.PAYLOAD_DECODE_FAILED, sessionId = session.descriptor.id, channel = frame.channel)
                 error(session, frame, RealtimeErrorCodes.PAYLOAD_DECODE_FAILED, "Payload could not be decoded for '${frame.channel}'")
                 return
             }
 
         invokeHandler {
-            resolution.definition.invokeMessage(
-                context(session, resolution.address, resolution.definition),
-                message,
-            )
+            try {
+                resolution.definition.invokeMessage(
+                    context(session, resolution.address, resolution.definition),
+                    message,
+                )
+            } catch (failure: Throwable) {
+                eventLog.record(RuntimeEventTypes.HANDLER_FAILED, sessionId = session.descriptor.id, channel = frame.channel, detail = "message")
+                throw failure
+            }
         }
     }
 
@@ -229,14 +257,20 @@ class LocalRealtimeRuntime(
 
     private fun invokeHandler(block: () -> Unit) {
         handlerExecutor.execute {
-            val startedAt = System.nanoTime()
-            try {
-                block()
-            } catch (_: Throwable) {
-                metrics.recordHandlerFailure()
-            } finally {
-                metrics.recordHandlerLatency(System.nanoTime() - startedAt)
-            }
+            runHandlerNow(block)
+        }
+    }
+
+    private fun runHandlerNow(block: () -> Unit): Boolean {
+        val startedAt = System.nanoTime()
+        return try {
+            block()
+            true
+        } catch (_: Throwable) {
+            metrics.recordHandlerFailure()
+            false
+        } finally {
+            metrics.recordHandlerLatency(System.nanoTime() - startedAt)
         }
     }
 
@@ -332,6 +366,7 @@ class LocalRealtimeRuntime(
         ) {
             val payload = codec.encode(message)
             val channel = address.concretePath()
+            clusterPublisher.broadcast(address, channel, payload)
             memberships.forEachBroadcastTarget(address) { sessionId ->
                 val result =
                     sessions[sessionId]?.enqueue(
@@ -345,6 +380,7 @@ class LocalRealtimeRuntime(
                     )
 
                 if (result == OutboundQueueOfferResult.DISCONNECT) {
+                    eventLog.record(RuntimeEventTypes.BACKPRESSURE_DISCONNECT, sessionId = sessionId, channel = channel)
                     disconnect(sessionId, RuntimeDisconnectReasons.BACKPRESSURE)
                 }
             }
@@ -365,6 +401,7 @@ class LocalRealtimeRuntime(
                 )
 
             if (result == OutboundQueueOfferResult.DISCONNECT) {
+                eventLog.record(RuntimeEventTypes.BACKPRESSURE_DISCONNECT, sessionId = session.id)
                 disconnect(session.id, RuntimeDisconnectReasons.BACKPRESSURE)
             }
         }
@@ -472,6 +509,7 @@ class LocalRealtimeRuntime(
 data class RuntimeDiagnosticsSnapshot(
     val metrics: RuntimeMetricsSnapshot,
     val sessions: List<RuntimeSessionDiagnostics>,
+    val events: List<RuntimeEvent>,
 )
 
 data class RuntimeSessionDiagnostics(

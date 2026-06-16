@@ -70,6 +70,8 @@ class KanalRuntimeEndpointTest {
         assertEquals("u1", response.sessions.single().userId)
         assertEquals(listOf("chat/general"), response.sessions.single().channels)
         assertEquals(true, response.sessions.single().queueDepths.any { it.policy == "suspend" })
+        assertTrue(response.events.any { it.type == "session_connected" && it.sessionId == "s1" })
+        assertTrue(response.events.any { it.type == "joined" && it.channel == "chat/general" })
     }
 
     data class Message(
